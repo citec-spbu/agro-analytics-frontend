@@ -1,5 +1,5 @@
 <template>
-  <div class="analytics-root">
+  <div class="analytics-root" :class="{ 'analytics-root--dark': dark }">
     <div v-if="!authorization" class="analytics-banner">
       Войдите в приложение, чтобы загрузить аналитику.
     </div>
@@ -128,7 +128,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import axios from 'axios';
 import {
   Chart,
@@ -144,6 +144,12 @@ import {
   Tooltip,
   Legend,
 } from 'chart.js';
+import {
+  haFmt,
+  sowingsCountWord,
+  truncateCultureAxisLabel,
+  yieldFmt,
+} from './utils/analyticsFormatters.js';
 
 Chart.register(
   ArcElement,
@@ -190,7 +196,21 @@ function cultureBarColor(culture) {
 const props = defineProps({
   apiBase: { type: String, default: '' },
   authorization: { type: String, default: '' },
+  /** Синхронизируется с тёмной темой хоста (iframe) или prefers-color-scheme в standalone */
+  dark: { type: Boolean, default: false },
 });
+
+function chartTheme() {
+  const dark =
+    typeof document !== 'undefined' &&
+    document.documentElement.classList.contains('agro-analytics--dark');
+  return {
+    dark,
+    tickColor: dark ? '#c5d0e0' : '#5c6b7a',
+    gridColor: dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)',
+    legendColor: dark ? '#d0dae8' : '#37474f',
+  };
+}
 
 const effectiveApiBase = computed(() => {
   const b = (props.apiBase || '').replace(/\/$/, '');
@@ -217,6 +237,8 @@ const sowingsChartNote = ref('');
 let chartDoughnutArea;
 let chartBarStarts;
 let chartSeasonGantt;
+let loadAllRequestId = 0;
+let seasonsRequestId = 0;
 
 const RECORDS_LIMIT = 2000;
 const MAX_SOWINGS_ON_CHART = 20;
@@ -245,16 +267,6 @@ const cropAreaFmt = computed(() => {
   return v.toFixed(1);
 });
 
-function haFmt(v) {
-  if (v == null || Number.isNaN(v)) return '—';
-  return Number(v).toFixed(2);
-}
-
-function yieldFmt(v) {
-  if (v == null || Number.isNaN(v)) return '—';
-  return Number(v).toFixed(2);
-}
-
 function toTime(iso) {
   if (!iso) return Date.now();
   const t = new Date(iso).getTime();
@@ -275,21 +287,6 @@ function aggregateStartsByCulture(series) {
   return Object.entries(totals)
     .filter(([, v]) => v > 0)
     .sort((a, b) => b[1] - a[1]);
-}
-
-function sowingsCountWord(n) {
-  const k = Math.abs(Math.trunc(Number(n))) % 100;
-  const k1 = k % 10;
-  if (k > 10 && k < 20) return 'посевов';
-  if (k1 > 1 && k1 < 5) return 'посева';
-  if (k1 === 1) return 'посев';
-  return 'посевов';
-}
-
-function truncateCultureAxisLabel(s, maxLen = 34) {
-  const t = String(s);
-  if (t.length <= maxLen) return t;
-  return `${t.slice(0, maxLen - 1)}…`;
 }
 
 function buildSowingsBarDisplay(pairs) {
@@ -344,6 +341,27 @@ function seasonQuery(extraParams = {}) {
   return s ? `?${s}` : '';
 }
 
+function clearCharts() {
+  chartDoughnutArea?.destroy();
+  chartBarStarts?.destroy();
+  chartSeasonGantt?.destroy();
+  chartDoughnutArea = undefined;
+  chartBarStarts = undefined;
+  chartSeasonGantt = undefined;
+}
+
+function resetAnalyticsState() {
+  summary.value = null;
+  byCultureItems.value = [];
+  timelineSeries.value = [];
+  cropRecords.value = [];
+  seasonItems.value = [];
+  selectedSeasonId.value = '';
+  error.value = '';
+  sowingsChartNote.value = '';
+  clearCharts();
+}
+
 function renderDoughnutArea(items) {
   if (!doughnutAreaRef.value) return;
   if (chartDoughnutArea) chartDoughnutArea.destroy();
@@ -370,7 +388,14 @@ function renderDoughnutArea(items) {
       maintainAspectRatio: false,
       cutout: '58%',
       plugins: {
-        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+        legend: {
+          position: 'bottom',
+          labels: {
+            boxWidth: 12,
+            font: { size: 11 },
+            color: chartTheme().legendColor,
+          },
+        },
         tooltip: {
           callbacks: {
             label(ctx) {
@@ -446,13 +471,13 @@ function renderBarStarts(series) {
       scales: {
         x: {
           min: 0,
-          ticks: { precision: 0 },
-          title: { display: true, text: 'Посевов, шт.' },
-          grid: { color: 'rgba(0,0,0,0.06)' },
+          ticks: { precision: 0, color: chartTheme().tickColor },
+          title: { display: true, text: 'Посевов, шт.', color: chartTheme().tickColor },
+          grid: { color: chartTheme().gridColor },
         },
         y: {
           reverse: true,
-          ticks: { font: { size: 10 } },
+          ticks: { font: { size: 10 }, color: chartTheme().tickColor },
           grid: { display: false },
         },
       },
@@ -528,7 +553,14 @@ function renderSeasonGantt(records) {
       maintainAspectRatio: false,
       interaction: { mode: 'nearest', intersect: true },
       plugins: {
-        legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
+        legend: {
+          position: 'top',
+          labels: {
+            boxWidth: 12,
+            font: { size: 11 },
+            color: chartTheme().legendColor,
+          },
+        },
         tooltip: {
           callbacks: {
             title(items) {
@@ -564,6 +596,7 @@ function renderSeasonGantt(records) {
           min: SEASON_GANTT_X_MIN_MS,
           ticks: {
             maxTicksLimit: 10,
+            color: chartTheme().tickColor,
             callback(v) {
               return new Date(v).toLocaleDateString('ru-RU', {
                 day: 'numeric',
@@ -572,14 +605,14 @@ function renderSeasonGantt(records) {
               });
             },
           },
-          grid: { color: 'rgba(0,0,0,0.06)' },
-          title: { display: true, text: 'Календарь' },
+          grid: { color: chartTheme().gridColor },
+          title: { display: true, text: 'Календарь', color: chartTheme().tickColor },
         },
         y: {
           type: 'category',
           offset: true,
           grid: { display: false },
-          ticks: { font: { size: 10 } },
+          ticks: { font: { size: 10 }, color: chartTheme().tickColor },
         },
       },
     },
@@ -587,23 +620,36 @@ function renderSeasonGantt(records) {
 }
 
 async function loadSeasonsList() {
-  if (!props.authorization || !effectiveApiBase.value) return;
+  const requestId = ++seasonsRequestId;
+  if (!props.authorization || !effectiveApiBase.value) {
+    if (requestId !== seasonsRequestId) return;
+    seasonItems.value = [];
+    selectedSeasonId.value = '';
+    return;
+  }
   const h = authHeaders();
   try {
     const { data } = await axios.get(apiUrl('/api/analytics/crops/seasons'), { headers: h });
+    if (requestId !== seasonsRequestId) return;
     seasonItems.value = data.items || [];
     const ids = new Set(seasonItems.value.map((s) => s.season_id));
     if (selectedSeasonId.value && !ids.has(selectedSeasonId.value)) {
       selectedSeasonId.value = '';
     }
   } catch {
+    if (requestId !== seasonsRequestId) return;
     seasonItems.value = [];
   }
 }
 
 async function loadAll() {
+  const requestId = ++loadAllRequestId;
   error.value = '';
-  if (!props.authorization || !effectiveApiBase.value) return;
+  if (!props.authorization || !effectiveApiBase.value) {
+    if (requestId !== loadAllRequestId) return;
+    resetAnalyticsState();
+    return;
+  }
   const h = authHeaders();
   try {
     const [sum, byCulture, timeline, records] = await Promise.all([
@@ -617,6 +663,7 @@ async function loadAll() {
         { headers: h },
       ),
     ]);
+    if (requestId !== loadAllRequestId) return;
     summary.value = sum.data;
     byCultureItems.value = byCulture.data.items || [];
     timelineSeries.value = timeline.data.series || [];
@@ -626,6 +673,7 @@ async function loadAll() {
     renderBarStarts(timelineSeries.value);
     renderSeasonGantt(cropRecords.value);
   } catch (e) {
+    if (requestId !== loadAllRequestId) return;
     error.value =
       e?.response?.data?.detail ||
       e?.message ||
@@ -633,30 +681,48 @@ async function loadAll() {
   }
 }
 
-async function bootstrapAnalytics() {
-  await loadSeasonsList();
-  await loadAll();
+function bootstrapAnalytics() {
+  loadAll();
+  loadSeasonsList();
 }
 
-onMounted(bootstrapAnalytics);
 watch(
   () => [effectiveApiBase.value, props.authorization],
   () => bootstrapAnalytics(),
+  { immediate: true, flush: 'sync' },
+);
+
+watch(
+  () => props.dark,
+  async () => {
+    await nextTick();
+    renderDoughnutArea(byCultureItems.value);
+    renderBarStarts(timelineSeries.value);
+    renderSeasonGantt(cropRecords.value);
+  },
 );
 
 onBeforeUnmount(() => {
-  chartDoughnutArea?.destroy();
-  chartBarStarts?.destroy();
-  chartSeasonGantt?.destroy();
+  clearCharts();
 });
+
+if (import.meta.hot) {
+  import.meta.hot.accept(() => {
+    window.location.reload();
+  });
+}
 </script>
 
 <style scoped>
 .analytics-root {
-  font-family: system-ui, -apple-system, sans-serif;
-  color: #1b2430;
+  --analytics-font: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--analytics-font);
+  color: #020617;
   max-width: 1100px;
   margin: 0 auto;
+  padding: 0 12px;
+  box-sizing: border-box;
+  -webkit-font-smoothing: antialiased;
 }
 
 .analytics-filters {
@@ -665,44 +731,54 @@ onBeforeUnmount(() => {
 
 .analytics-filters .filter-label {
   display: block;
-  font-size: 0.75rem;
-  color: #6a7b90;
-  margin-bottom: 4px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #0f172a;
+  margin-bottom: 6px;
+  letter-spacing: 0.01em;
 }
 
 .season-select {
   width: 100%;
   max-width: 420px;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border-radius: 8px;
-  border: 1px solid #cfd8dc;
-  font-size: 0.9rem;
+  border: 1px solid #94a3b8;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: #0f172a;
   background: #fff;
+  font-family: var(--analytics-font);
 }
 
 .filter-hint {
   margin: 8px 0 0;
-  font-size: 0.72rem;
-  color: #78909c;
-  line-height: 1.35;
+  font-size: 0.8125rem;
+  color: #1e293b;
+  line-height: 1.5;
   max-width: 42rem;
 }
 
 .analytics-head {
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
 }
 
 .analytics-title {
-  font-size: 1.5rem;
-  margin: 0 0 0.25rem;
-  font-weight: 650;
+  font-size: 1.75rem;
+  margin: 0 0 0.375rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+  color: #020617;
 }
 
 .analytics-sub {
   margin: 0;
-  color: #5c6b80;
-  font-size: 0.9rem;
-  line-height: 1.45;
+  max-width: 52rem;
+  color: #0f172a;
+  font-size: 0.9375rem;
+  font-weight: 400;
+  line-height: 1.55;
 }
 
 .analytics-banner,
@@ -854,5 +930,134 @@ onBeforeUnmount(() => {
   .chart-doughnut .chart-canvas-wrap {
     max-width: none;
   }
+}
+
+/*
+  Тёмная тема: правила на корне с модификатором, иначе глобальные селекторы
+  слабее scoped (data-v-*) и не перекрашивали текст.
+*/
+.analytics-root--dark {
+  color: #f8fafc;
+  min-height: 100vh;
+  padding-bottom: 24px;
+  background: linear-gradient(180deg, #161d2e 0%, #121a28 100%);
+  box-sizing: border-box;
+}
+
+.analytics-root--dark .analytics-title {
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.analytics-root--dark .analytics-sub,
+.analytics-root--dark .filter-hint {
+  color: #e2e8f0;
+}
+
+.analytics-root--dark .analytics-filters .filter-label {
+  color: #f8fafc;
+  font-weight: 600;
+}
+
+.analytics-root--dark .season-select {
+  color: #ffffff;
+  font-weight: 500;
+  background: #1e293b;
+  border-color: #64748b;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.analytics-root--dark .season-select:focus {
+  outline: 2px solid #38bdf8;
+  outline-offset: 1px;
+}
+
+.analytics-root--dark .season-select option {
+  color: #0f172a;
+  background: #f8fafc;
+}
+
+.analytics-root--dark .analytics-banner {
+  background: rgba(51, 65, 85, 0.85);
+  color: #f1f5f9;
+}
+
+.analytics-root--dark .analytics-error {
+  background: rgba(183, 28, 28, 0.35);
+  color: #fecaca;
+}
+
+.analytics-root--dark .kpi-card {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.analytics-root--dark .kpi-card--land {
+  background: linear-gradient(145deg, #334155, #1e293b);
+}
+
+.analytics-root--dark .kpi-card--crop {
+  background: linear-gradient(145deg, #2f4f3f, #1e3330);
+}
+
+.analytics-root--dark .kpi-label {
+  color: #cbd5e1;
+}
+
+.analytics-root--dark .kpi-value {
+  color: #ffffff;
+}
+
+.analytics-root--dark .chart-card {
+  background: #1e293b;
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+.analytics-root--dark .chart-title {
+  color: #ffffff;
+}
+
+.analytics-root--dark .chart-hint {
+  color: #cbd5e1;
+}
+
+.analytics-root--dark .chart-hint--warn {
+  color: #fca5a5;
+}
+
+.analytics-root--dark .chart-note {
+  color: #94a3b8;
+}
+
+.analytics-root--dark .crop-table th,
+.analytics-root--dark .crop-table td {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.analytics-root--dark .crop-table th {
+  background: #334155;
+  color: #f8fafc;
+}
+
+.analytics-root--dark .crop-table td {
+  color: #e2e8f0;
+}
+</style>
+
+<style>
+html.agro-analytics--dark {
+  color-scheme: dark;
+}
+
+html.agro-analytics--dark body {
+  margin: 0;
+  background: linear-gradient(180deg, #161d2e 0%, #121a28 100%);
+  color: #f8fafc;
+  min-height: 100vh;
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+html.agro-analytics--dark #app {
+  min-height: 100vh;
 }
 </style>

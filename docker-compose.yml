@@ -1,9 +1,13 @@
 # Фронтенд аналитики (отдельное SPA): http://localhost:9001 (с хоста браузера).
 # Сеть agronetwork — как у остальных сервисов (docker network create agronetwork).
 #
-# Образ = nginx со статикой после vite build. После правок в src/ выполните:
+# Прод (nginx, нужна пересборка образа после правок):
 #   docker compose up -d --build
-# Или локально без Docker: npm run dev (порт 9001, HMR).
+#
+# Разработка только в Docker (Vite + HMR, без npm на хосте):
+#   docker stop agro-analytics-frontend
+#   docker compose -f docker-compose.dev.yml up
+#   # или: npm run dev:docker
 #
 # Чтобы в хосте открывался iframe с этим приложением, задайте в билде хоста:
 #   VUE_APP_ANALYTICS_MFE_URL=http://localhost:9001
