@@ -4,7 +4,7 @@ import vue from '@vitejs/plugin-vue';
 const poll = process.env.VITE_POLL === '1';
 const port = 9001;
 
-/** Standalone SPA micro-frontend embedded into host via iframe + postMessage. */
+/** Standalone SPA; host can also load src/mf-element.js as Web Component entry. */
 export default defineConfig(({ command }) => {
   const isBuild = command === 'build';
 

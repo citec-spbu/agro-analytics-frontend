@@ -7,6 +7,7 @@
     "dev": "vite --port 9001",
     "dev:docker": "docker compose -f docker-compose.dev.yml up",
     "build": "vite build",
+    "build:mf": "vite build --config vite.mf.config.js",
     "preview": "vite preview --port 9001",
     "test": "node --test tests/*.test.mjs",
     "test:ci": "node --test tests/*.test.mjs"
