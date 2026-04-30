@@ -150,6 +150,7 @@ import {
   truncateCultureAxisLabel,
   yieldFmt,
 } from './utils/analyticsFormatters.js';
+import { fetchAnalyticsData } from './utils/analyticsRequests.js';
 
 Chart.register(
   ArcElement,
@@ -196,7 +197,7 @@ function cultureBarColor(culture) {
 const props = defineProps({
   apiBase: { type: String, default: '' },
   authorization: { type: String, default: '' },
-  /** Синхронизируется с тёмной темой хоста (iframe) или prefers-color-scheme в standalone */
+  /** Synced with host dark theme (iframe) or prefers-color-scheme in standalone mode. */
   dark: { type: Boolean, default: false },
 });
 
@@ -652,22 +653,17 @@ async function loadAll() {
   }
   const h = authHeaders();
   try {
-    const [sum, byCulture, timeline, records] = await Promise.all([
-      axios.get(apiUrl(`/api/analytics/summary${seasonQuery()}`), { headers: h }),
-      axios.get(apiUrl(`/api/analytics/crops/by-culture${seasonQuery()}`), { headers: h }),
-      axios.get(apiUrl(`/api/analytics/crops/timeline-starts${seasonQuery({ months: 36 })}`), {
-        headers: h,
-      }),
-      axios.get(
-        apiUrl(`/api/analytics/crops/records${seasonQuery({ limit: RECORDS_LIMIT })}`),
-        { headers: h },
-      ),
-    ]);
+    const data = await fetchAnalyticsData({
+      apiBase: effectiveApiBase.value,
+      authorization: h.Authorization,
+      selectedSeasonId: selectedSeasonId.value || null,
+      recordsLimit: RECORDS_LIMIT,
+    });
     if (requestId !== loadAllRequestId) return;
-    summary.value = sum.data;
-    byCultureItems.value = byCulture.data.items || [];
-    timelineSeries.value = timeline.data.series || [];
-    cropRecords.value = records.data.items || [];
+    summary.value = data.summary;
+    byCultureItems.value = data.byCulture;
+    timelineSeries.value = data.timeline;
+    cropRecords.value = data.records;
     await nextTick();
     renderDoughnutArea(byCultureItems.value);
     renderBarStarts(timelineSeries.value);
@@ -933,8 +929,8 @@ if (import.meta.hot) {
 }
 
 /*
-  Тёмная тема: правила на корне с модификатором, иначе глобальные селекторы
-  слабее scoped (data-v-*) и не перекрашивали текст.
+  Dark theme rules are scoped under a root modifier.
+  This avoids conflicts where global selectors lose to scoped (data-v-*) styles.
 */
 .analytics-root--dark {
   color: #f8fafc;

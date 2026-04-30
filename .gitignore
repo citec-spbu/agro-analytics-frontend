@@ -1,2 +1,14 @@
 node_modules/
 dist/
+coverage/
+
+# Environment files
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# OS and IDE
+.DS_Store
+.idea/
+.vscode/

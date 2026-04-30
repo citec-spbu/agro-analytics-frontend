@@ -10,7 +10,7 @@ const MSG_TYPE = 'AGRO_ANALYTICS_AUTH';
 
 const apiBase = ref('');
 const authorization = ref('');
-/** В iframe до postMessage держим палитру по ОС, чтобы не было «слепого» первого кадра */
+/** In iframe mode, keep OS theme until first postMessage to avoid a flash on initial render. */
 function initialThemeDark() {
   if (typeof window === 'undefined') return false;
   if (!window.parent || window.parent === window) return false;

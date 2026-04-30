@@ -1,5 +1,5 @@
 #!/bin/sh
-# Vite в Docker: зависимости в named volume, HMR с VITE_POLL=1
+# Vite in Docker: dependencies are installed into named volume, HMR uses VITE_POLL=1.
 set -e
 cd /app
 
